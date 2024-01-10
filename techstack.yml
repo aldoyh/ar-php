@@ -1,0 +1,71 @@
+repo_name: aldoyh/ar-php
+report_id: e98fe201ec8dc4901ddf15f13610bc39
+version: 0.1
+repo_type: Public
+timestamp: '2024-01-10T18:19:26+00:00'
+requested_by: khaled-alshamaa
+provider: github
+branch: master
+detected_tools_count: 5
+tools:
+- name: JavaScript
+  description: Lightweight, interpreted, object-oriented language with first-class
+    functions
+  website_url: https://developer.mozilla.org/en-US/docs/Web/JavaScript
+  open_source: true
+  hosted_saas: false
+  category: Languages & Frameworks
+  sub_category: Languages
+  image_url: https://img.stackshare.io/service/1209/javascript.jpeg
+  detection_source_url: https://github.com/aldoyh/ar-php/blob/master/docs/js/search.js
+  detection_source: docs/js/search.js
+  last_updated_by: Khaled Al-Shamaa
+  last_updated_on: 2020-11-20 16:57:50.000000000 Z
+- name: PHP
+  description: A popular general-purpose scripting language that is especially suited
+    to web development
+  website_url: http://www.php.net/
+  open_source: true
+  hosted_saas: false
+  category: Languages & Frameworks
+  sub_category: Languages
+  image_url: https://img.stackshare.io/service/991/hwUcGZ41_400x400.jpg
+  detection_source_url: https://github.com/aldoyh/ar-php
+  detection_source: Repo Metadata
+- name: Git
+  description: Fast, scalable, distributed revision control system
+  website_url: http://git-scm.com/
+  open_source: true
+  hosted_saas: false
+  category: Build, Test, Deploy
+  sub_category: Version Control System
+  image_url: https://img.stackshare.io/service/1046/git.png
+  detection_source_url: https://github.com/aldoyh/ar-php
+  detection_source: Repo Metadata
+- name: PHPUnit
+  description: Testing framework for PHP
+  website_url: https://phpunit.de/
+  version: 9.5.8
+  license: BSD-3-Clause
+  open_source: true
+  hosted_saas: false
+  category: Build, Test, Deploy
+  sub_category: Testing Frameworks
+  image_url: https://img.stackshare.io/service/1616/1_WsEnddd5Y4EgEHsT054kUQ.jpeg
+  detection_source_url: https://github.com/aldoyh/ar-php/blob/master/composer.lock
+  detection_source: composer.json
+  last_updated_by: Khaled Al-Shamaa
+  last_updated_on: 2020-01-25 11:22:42.000000000 Z
+- name: phpunit/phpunit
+  description: The PHP Unit Testing framework
+  package_url: https://packagist.org/phpunit/phpunit
+  version: 9.5.8
+  open_source: false
+  hosted_saas: false
+  category: Build, Test, Deploy
+  sub_category: Package Managers
+  image_url: https://img.stackshare.io/package/packagist/image.png
+  detection_source_url: https://github.com/aldoyh/ar-php/blob/master/composer.lock
+  detection_source: composer.json
+  last_updated_by: Khaled Al-Shamaa
+  last_updated_on: 2020-12-16 11:41:06.000000000 Z
