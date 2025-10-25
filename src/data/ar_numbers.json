@@ -116,7 +116,7 @@
        "arabic": "ريال عماني",
        "english": "Omani rial",
        "ar_basic": "ريال",
-       "ar_fraction": "بايزاس",
+       "ar_fraction": "بيسة",
        "en_basic": "Rial",
        "en_fraction": "Baisa",
        "decimals": 3
@@ -156,7 +156,7 @@
        "arabic": "شلن صومالي",
        "english": "Somali shilling",
        "ar_basic": "شلن",
-       "ar_fraction": "سنتسيمي",
+       "ar_fraction": "سنت",
        "en_basic": "Shilling",
        "en_fraction": "Cent",
        "decimals": 2
