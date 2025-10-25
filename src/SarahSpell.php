@@ -34,7 +34,15 @@ class Speller {
 		
 		$tmpfile_path = sys_get_temp_dir().DIRECTORY_SEPARATOR.'sarahspell.db';
 		if (!file_exists($tmpfile_path)) {
-			copy('compress.bzip2://' . $this->rootDirectory.'/data/SarahSpell/sarahspell.db.bz2', $tmpfile_path);
+			$enabled_exts = get_loaded_extensions();
+			if(!in_array("zlib", $enabled_exts)) {
+				echo "zlib extension is not enabled, it is needed to extract SarahSpell's DB." . PHP_EOL;
+				echo "Possible solutions:" . PHP_EOL;
+				echo "(1) Enable zlib in your PHP configuration" . PHP_EOL;
+				echo "(2) Manually extract the DB from `vendor\khaled.alshamaa\ar-php\src\data\SarahSpell\sarahspell.db.gz` to your `temp` directory and retry" . PHP_EOL;
+				exit();
+			}			
+			copy('compress.bzip2://' . $this->rootDirectory.'/data/SarahSpell/sarahspell.db.gz', $tmpfile_path);
 		}
 
         try {
@@ -435,9 +443,8 @@ private function interpolateQuery($query, $params) {
 
         foreach ($splits as $lnr) {
             if ($lnr[1]) {
+		$alph = [];
                 $alph = @$alphabet[mb_substr($lnr[1], 0, 1)];
-                if (count($alph) == 0)
-                    $alph = [];
                 foreach (@$alph as $letter) {
                     $element = ['sugg' => $lnr[0] . $letter . mb_substr($lnr[1], 1), "delta" => $letter, 'type' => 'replace', 'pos' => mb_strlen($lnr[0])];
                     $replaces[] = $element;
@@ -483,9 +490,8 @@ private function interpolateQuery($query, $params) {
         $alphabet = $this->reverse_and_export($this->deletion_confusion);
 
         foreach ($splits as $lnr) {
+	    $alph = [];
             $alph = @$alphabet[mb_substr($lnr[1], 0, 1)];
-            if (count($alph) == 0)
-                $alph = [];
 
             foreach (@$alph as $letter) {
                 $element = ['sugg' => $lnr[0] . $letter . $lnr[1], "delta" => $letter, 'type' => 'delete', 'pos' => mb_strlen($lnr[0])];

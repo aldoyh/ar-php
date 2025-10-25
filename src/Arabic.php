@@ -60,6 +60,15 @@ class Arabic
     /** @var string */
     public $version = '7.0.0';
 
+    /** @var \Psr\SimpleCache\CacheInterface|null */
+    private $___psr16 = null;
+
+    /** @var int|null Default TTL seconds for cached entries (null = no expiry) */
+    private $___psr16Ttl = 86400;
+    
+    /** @var array<> in-process cache for data files */
+    private $___resCache = array();
+
     /** @var array<string> */
     private $arStandardPatterns = [];
 
@@ -443,12 +452,171 @@ class Arabic
         $this->arStandardInit();
     }
 
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    // Replace manual file I/O with PSR-16 compatible caching mechanism
+    
+    /*
+        // composer.json (example)
+        "require": {
+          "psr/simple-cache": "^1.0",
+          "apix/cache": "^1.2"   // (choose a version that supports PHP 5.6)
+        }
+
+        // usage
+        $cache = new \Apix\Cache\Apcu(); // PSR-16 SimpleCache implementation
+        $arabic = (new Arabic())->withPsr16Cache($cache, 86400);
+    */
+
+    /**
+     * Enable PSR-16 caching.
+     * @param \Psr\SimpleCache\CacheInterface $cache
+     * @param int|null $ttl Default TTL in seconds (null = forever, per backend)
+     * @return $this
+     */
+    public function withPsr16Cache($cache, $ttl = 86400)
+    {
+        $this->___psr16 = $cache;
+        $this->___psr16Ttl = $ttl;
+        return $this;
+    }
+    
+    private function ___raw($relativePath)
+    {
+        $key = "raw:" . $relativePath;
+        if (array_key_exists($key, $this->___resCache)) {
+            return (string) $this->___resCache[$key];
+        }
+
+        $relativePath = ltrim(str_replace(array('\\', '..'), array('/', ''), $relativePath), '/');
+        $base = __DIR__ . DIRECTORY_SEPARATOR . 'data';
+        $full = $base . DIRECTORY_SEPARATOR . $relativePath;
+
+        $real = @realpath($full);
+        $baseReal = @realpath($base);
+        if ($baseReal === false) { $baseReal = $base; }
+
+        if ($real === false || !is_file($real) || strpos($real, $baseReal) !== 0) {
+            throw new \RuntimeException("Resource not found: " . $full);
+        }
+
+        // ---- PSR-16 LOOKUP (raw) ----------------------------------------------
+        $rawCacheKey = 'arphp:data:raw:' . $relativePath . ':' . @filemtime($real);
+        if ($this->___psr16) {
+            try {
+                $cached = $this->___psr16->get($rawCacheKey);
+                if ($cached !== null) {
+                    $this->___resCache[$key] = $cached; // also fill in-process cache
+                    return (string) $cached;
+                }
+            } catch (\Psr\SimpleCache\InvalidArgumentException $e) {
+                // ignore invalid key errors silently
+            }
+        }
+        // -----------------------------------------------------------------------
+
+        $raw = @file_get_contents($real);
+        if ($raw === false) {
+            throw new \RuntimeException("Unable to read: " . $real);
+        }
+
+        // set PSR-16 + in-process caches
+        if ($this->___psr16) {
+            try { $this->___psr16->set($rawCacheKey, $raw, $this->___psr16Ttl); } 
+            catch (\Psr\SimpleCache\InvalidArgumentException $e) { /* ignore */ }
+        }
+        $this->___resCache[$key] = $raw;
+
+        return $raw;
+    }
+
+    private function ___json($relativePath)
+    {
+        $key = "json:" . $relativePath;
+        if (array_key_exists($key, $this->___resCache)) {
+            return (array) $this->___resCache[$key];
+        }
+
+        // Use raw() path/mtime for invalidation
+        $relativePath = ltrim(str_replace(array('\\', '..'), array('/', ''), $relativePath), '/');
+        $base = __DIR__ . DIRECTORY_SEPARATOR . 'data';
+        $full = $base . DIRECTORY_SEPARATOR . $relativePath;
+        $real = @realpath($full);
+        if ($real === false) { throw new \RuntimeException("Resource not found: " . $full); }
+
+        $jsonCacheKey = 'arphp:data:json:' . $relativePath . ':' . @filemtime($real);
+        if ($this->___psr16) {
+            try {
+                $cached = $this->___psr16->get($jsonCacheKey);
+                if (is_array($cached)) {
+                    $this->___resCache[$key] = $cached; // hydrate in-process
+                    return $cached;
+                }
+            } catch (\Psr\SimpleCache\InvalidArgumentException $e) { /* ignore */ }
+        }
+
+        $raw = $this->___raw($relativePath); // will use PSR-16 for raw if available
+        $data = json_decode($raw, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            throw new \RuntimeException("Invalid JSON in '" . $relativePath . "': " . json_last_error_msg());
+        }
+
+        if ($this->___psr16) {
+            try { $this->___psr16->set($jsonCacheKey, $data, $this->___psr16Ttl); }
+            catch (\Psr\SimpleCache\InvalidArgumentException $e) { /* ignore */ }
+        }
+        $this->___resCache[$key] = $data;
+
+        return $data;
+    }
+
+    private function ___lines($relativePath)
+    {
+        $key = "lines:" . $relativePath;
+        if (array_key_exists($key, $this->___resCache)) {
+            return (array) $this->___resCache[$key];
+        }
+
+        $relativePath = ltrim(str_replace(array('\\', '..'), array('/', ''), $relativePath), '/');
+        $base = __DIR__ . DIRECTORY_SEPARATOR . 'data';
+        $full = $base . DIRECTORY_SEPARATOR . $relativePath;
+        $real = @realpath($full);
+        if ($real === false) { throw new \RuntimeException("Resource not found: " . $full); }
+
+        $linesCacheKey = 'arphp:data:lines:' . $relativePath . ':' . @filemtime($real);
+        if ($this->___psr16) {
+            try {
+                $cached = $this->___psr16->get($linesCacheKey);
+                if (is_array($cached)) {
+                    $this->___resCache[$key] = $cached;
+                    return $cached;
+                }
+            } catch (\Psr\SimpleCache\InvalidArgumentException $e) { /* ignore */ }
+        }
+
+        $raw = $this->___raw($relativePath);
+        $lines = preg_split("/\r\n|\r|\n/", $raw);
+        if ($lines === false) { $lines = array(); }
+
+        $trimmed = array();
+        foreach ($lines as $l) {
+            $trimmed[] = rtrim($l, "\r\n");
+        }
+
+        if ($this->___psr16) {
+            try { $this->___psr16->set($linesCacheKey, $trimmed, $this->___psr16Ttl); }
+            catch (\Psr\SimpleCache\InvalidArgumentException $e) { /* ignore */ }
+        }
+        $this->___resCache[$key] = $trimmed;
+
+        return $trimmed;
+    }
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+
     /** @return void */
     private function arPluralInit()
     {
         if ($this->arPluralLoad === false) {
-            $file = $this->rootDirectory . '/data/ar_plurals.json';
-            $json = json_decode(file_get_contents($file), true);
+            $json = $this->___json('ar_plurals.json');
             $this->arPluralsForms = $json['arPluralsForms'];
 
             $this->arPluralLoad = true;
@@ -459,11 +627,9 @@ class Arabic
     private function arDateInit()
     {
         if ($this->arDateLoad === false) {
-            $file = $this->rootDirectory . '/data/um_alqoura.txt';
-            $this->umAlqoura = file($file, FILE_IGNORE_NEW_LINES);
+            $this->umAlqoura = $this->___lines('um_alqoura.txt');
 
-            $file = $this->rootDirectory . '/data/ar_date.json';
-            $this->arDateJSON = json_decode((string)file_get_contents($file), true);
+            $this->arDateJSON = $this->___json('ar_date.json');
 
             $this->arDateLoad = true;
         }
@@ -473,13 +639,9 @@ class Arabic
     private function arNamesInit()
     {
         if ($this->arNamesLoad === false) {
-            $file = $this->rootDirectory . '/data/ar_female.txt';
-            $this->arFemaleNames = file($file, FILE_IGNORE_NEW_LINES);
-
-            $file = $this->rootDirectory . '/data/ar_male.txt';
-            $this->arMaleNames = file($file, FILE_IGNORE_NEW_LINES);
-
-            $this->arNamesLoad = true;
+            $this->arFemaleNames = $this->___lines('ar_female.txt');
+            $this->arMaleNames   = $this->___lines('ar_male.txt');
+            $this->arNamesLoad   = true;
         }
     }
 
@@ -621,8 +783,8 @@ class Arabic
         if ($this->arStrToTimeLoad === false) {
             $this->arDateInit();
 
-            $this->strToTimeSearch = file($this->rootDirectory . '/data/strtotime_search.txt', FILE_IGNORE_NEW_LINES);
-            $this->strToTimeReplace = file($this->rootDirectory . '/data/strtotime_replace.txt', FILE_IGNORE_NEW_LINES);
+            $this->strToTimeSearch  = $this->___lines('strtotime_search.txt');
+            $this->strToTimeReplace = $this->___lines('strtotime_replace.txt');
 
             foreach ($this->arDateJSON['ar_hj_month'] as $month) {
                 $this->hj[] = (string)$month;
@@ -644,8 +806,7 @@ class Arabic
     private function arTransliterateInit()
     {
         if ($this->arTransliterateLoad === false) {
-            $file = $this->rootDirectory . '/data/ar_transliteration.json';
-            $json = json_decode((string)file_get_contents($file), true);
+            $json = $this->___json('ar_transliteration.json');
 
             foreach ($json['preg_replace_en2ar'] as $item) {
                 $this->en2arPregSearch[]  = $item['search'];
@@ -695,8 +856,7 @@ class Arabic
     private function arNumbersInit()
     {
         if ($this->arNumbersLoad === false) {
-            $file = $this->rootDirectory . '/data/ar_numbers.json';
-            $json = json_decode((string)file_get_contents($file), true);
+            $json = $this->___json('ar_numbers.json');
 
             foreach ($json['individual']['male'] as $num) {
                 if (isset($num['grammar'])) {
@@ -780,8 +940,7 @@ class Arabic
     private function arKeySwapInit()
     {
         if ($this->arKeySwapLoad === false) {
-            $file = $this->rootDirectory . '/data/ar_keyswap.json';
-            $json = json_decode((string)file_get_contents($file), true);
+            $json = $this->___json('ar_keyswap.json');
 
             foreach ($json['arabic'] as $key) {
                 $index = (int)$key['id'];
@@ -798,11 +957,8 @@ class Arabic
                 $this->frKeyboard[$index] = (string)$key['text'];
             }
 
-            $file = $this->rootDirectory . '/data/logodd_ar.txt';
-            $this->arLogodd = unserialize(file_get_contents($file));
-
-            $file = $this->rootDirectory . '/data/logodd_en.txt';
-            $this->enLogodd = unserialize(file_get_contents($file));
+            $this->arLogodd = unserialize($this->___raw('logodd_ar.txt'));
+            $this->enLogodd = unserialize($this->___raw('logodd_en.txt'));
 
             $this->arKeySwapLoad = true;
         }
@@ -812,8 +968,7 @@ class Arabic
     private function arSoundexInit()
     {
         if ($this->arSoundexLoad === false) {
-            $file = $this->rootDirectory . '/data/ar_soundex.json';
-            $json = json_decode((string)file_get_contents($file), true);
+            $json = $this->___json('ar_soundex.json');
 
             foreach ($json['arSoundexCode'] as $item) {
                 $index = $item['search'];
@@ -845,8 +1000,7 @@ class Arabic
             // Arabic Presentation Forms-B (https://en.wikipedia.org/wiki/Arabic_Presentation_Forms-B)
             // Contextual forms (https://en.wikipedia.org/wiki/Arabic_script_in_Unicode#Contextual_forms)
             // 0- ISOLATED FORM, 1- FINAL FORM, 2- INITIAL FORM, 3- MEDIAL FORM
-            $file = $this->rootDirectory . '/data/ar_glyphs.json';
-            $this->arGlyphs = json_decode((string)file_get_contents($file), true);
+            $this->arGlyphs = $this->___json('ar_glyphs.json');
 
             $this->arGlyphsLoad = true;
         }
@@ -856,8 +1010,7 @@ class Arabic
     private function arQueryInit()
     {
         if ($this->arQueryLoad === false) {
-            $file = $this->rootDirectory . '/data/ar_query.json';
-            $json = json_decode((string)file_get_contents($file), true);
+            $json = $this->___json('ar_query.json');
 
             foreach ($json['preg_replace'] as $pair) {
                 $this->arQueryLexPatterns[] = (string)$pair['search'];
@@ -873,15 +1026,15 @@ class Arabic
     {
         if ($this->arSummaryLoad === false) {
             // This common words used in cleanCommon method
-            $words    = file($this->rootDirectory . '/data/ar_stopwords.txt', FILE_IGNORE_NEW_LINES);
-            $en_words = file($this->rootDirectory . '/data/en_stopwords.txt', FILE_IGNORE_NEW_LINES);
+            $words    = $this->___lines('ar_stopwords.txt');
+            $en_words = $this->___lines('en_stopwords.txt');
 
             $words = array_merge($words, $en_words);
 
             $this->arSummaryCommonWords = $words;
 
             // This important words used in rankSentences method
-            $words = file($this->rootDirectory . '/data/important_words.txt', FILE_IGNORE_NEW_LINES);
+            $words = $this->___lines('important_words.txt');
 
             $this->arSummaryImportantWords = $words;
 
@@ -894,9 +1047,9 @@ class Arabic
     private function arSentimentInit()
     {
         if ($this->arSentimentLoad === false) {
-            $this->allStems   = file($this->rootDirectory . '/data/stems.txt', FILE_IGNORE_NEW_LINES);
-            $this->logOddStem = file($this->rootDirectory . '/data/logodd_stem.txt', FILE_IGNORE_NEW_LINES);
-            $this->logOdd     = file($this->rootDirectory . '/data/logodd.txt', FILE_IGNORE_NEW_LINES);
+            $this->allStems   = $this->___lines('stems.txt');
+            $this->logOddStem = $this->___lines('logodd_stem.txt');
+            $this->logOdd     = $this->___lines('logodd.txt');
 
             $this->arSentimentLoad = true;
         }
@@ -907,12 +1060,12 @@ class Arabic
     private function arDialectInit()
     {
         if ($this->arDialectLoad === false) {
-            $this->dialectsStems    = file($this->rootDirectory . '/data/dialects_stems.txt', FILE_IGNORE_NEW_LINES);
-            $this->logOddDialects   = file($this->rootDirectory . '/data/logodd_dialects.txt', FILE_IGNORE_NEW_LINES);
-            $this->logOddEgyptian   = file($this->rootDirectory . '/data/logodd_egyptian.txt', FILE_IGNORE_NEW_LINES);
-            $this->logOddLevantine  = file($this->rootDirectory . '/data/logodd_levantine.txt', FILE_IGNORE_NEW_LINES);
-            $this->logOddMaghrebi   = file($this->rootDirectory . '/data/logodd_maghrebi.txt', FILE_IGNORE_NEW_LINES);
-            $this->logOddPeninsular = file($this->rootDirectory . '/data/logodd_peninsular.txt', FILE_IGNORE_NEW_LINES);
+            $this->dialectsStems    = $this->___lines('dialects_stems.txt');
+            $this->logOddDialects   = $this->___lines('logodd_dialects.txt');
+            $this->logOddEgyptian   = $this->___lines('logodd_egyptian.txt');
+            $this->logOddLevantine  = $this->___lines('logodd_levantine.txt');
+            $this->logOddMaghrebi   = $this->___lines('logodd_maghrebi.txt');
+            $this->logOddPeninsular = $this->___lines('logodd_peninsular.txt');
 
             $this->arDialectLoad = true;
         }
@@ -922,7 +1075,7 @@ class Arabic
     private function arSimilarityInit()
     {
         if ($this->arSimilarityLoad === false) {
-            $json = json_decode((string)file_get_contents($this->rootDirectory . '/data/ar_similarity.json'), true);
+            $json = $this->___json('ar_similarity.json');
 
             foreach ($json['keyboard'] as $item) {
                 $char = $item['char'];
@@ -2710,6 +2863,7 @@ class Arabic
 
             // handle the case of HARAKAT
             if (mb_strpos($this->arGlyphsVowel, $crntChar) !== false) {
+                /*
                 if ($crntChar == 'ّ') {
                     if (mb_strpos($this->arGlyphsVowel, $chars[$i - 1]) !== false) {
                         // check if the SHADDA & HARAKA in the middle of connected letters (form 3)
@@ -2769,7 +2923,43 @@ class Arabic
                             $output .= '&#x0652;';
                             break;
                     }
+                } 
+                */
+                
+                // Insert Zero Width Non-Joiner (U+200C) to improve rendering
+                if (mb_strpos($this->arGlyphsVowel, $chars[$i - 1]) !== false) {
+                    //$output .= '&#x200B;';
                 }
+                // PowerShell: Get-Content test.txt -Raw | ForEach-Object { ($_ -split '').ForEach({ '{0:X4}' -f [int]$_[0] }) -join ' ' }
+
+                // Unicode Arabic Range (0600–06FF): Tashkil from ISO 8859-6
+                switch ($crntChar) {
+                    case 'ً':
+                        $output .= '&#x064B;';
+                        break;
+                    case 'ٌ':
+                        $output .= '&#x064C;';
+                        break;
+                    case 'ٍ':
+                        $output .= '&#x064D;';
+                        break;
+                    case 'َ':
+                        $output .= '&#x064E;';
+                        break;
+                    case 'ُ':
+                        $output .= '&#x064F;';
+                        break;
+                    case 'ِ':
+                        $output .= '&#x0650;';
+                        break;
+                    case 'ّ':
+                        $output .= '&#x0651;';
+                        break;
+                    case 'ْ':
+                        $output .= '&#x0652;';
+                        break;
+                }
+                
                 continue;
             }
 
@@ -3806,7 +3996,7 @@ class Arabic
     {
         $this->arSummaryInit();
 
-        $extra_words = file($this->rootDirectory . '/data/ar_stopwords_extra.txt');
+        $extra_words = $this->___lines('ar_stopwords_extra.txt');
         $extra_words = array_map('trim', $extra_words);
 
         $this->arSummaryCommonWords = array_merge($this->arSummaryCommonWords, $extra_words);
